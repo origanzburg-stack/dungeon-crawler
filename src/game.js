@@ -48,6 +48,17 @@ const VOID_BALL_PULL_RADIUS = 94;
 const VOID_BALL_PULL_FORCE = 255;
 const LEVEL_INTRO_MS = 10000;
 
+const ENEMY_ARROW_SPEED  = 280;
+const ENEMY_ARROW_DAMAGE = 14;
+const ENEMY_ARROW_LIFE   = 1300;
+const BOMBER_EXPLODE_RADIUS = 72;
+const TRAP_DAMAGE        = 12;
+const TRAP_ACTIVE_MS     = 600;
+const TRAP_IDLE_MS       = 2400;
+const TRAP_WARN_MS       = 400;   // visual warning before activation
+const SHOP_INTERACT_RADIUS = 72;
+const SHOP_ITEM_COUNT    = 3;
+
 const RARITY_COLOR = {
   common:    0x9ca3af,
   uncommon:  0x22c55e,
@@ -375,7 +386,9 @@ class InstructionsScene extends Phaser.Scene {
       'Q: clear selected hotbar slot',
       'R: lightning strike',
       'E: void ball',
-      'F near a chest: open the chest instead',
+      'F near a chest or shop: interact',
+      'Rooms: shop (buy with XP), trap (spikes!), treasure (better loot)',
+      'Every 5 floors: boss room',
       'Esc: pause menu',
       '` : debug console',
       'Easy: fully visible map',
@@ -488,6 +501,10 @@ class MainScene extends Phaser.Scene {
     this._worldItems = [];
     this._fireballs = [];
     this._voidBalls = [];
+    this._enemyArrows = [];
+    this._traps = [];
+    this._shopNpcs = [];
+    this._shopUiOpen = false;
     this._gameOver = false;
     this._levelingUp = false;
     this._levelIntroActive = false;
@@ -669,7 +686,11 @@ class MainScene extends Phaser.Scene {
           audioManager.playSfx('death');
           this._spawnDeathParticles(enemy.container.x, enemy.container.y, enemy.type);
           this._giveXp(enemy.xpReward);
-          const goldDrop = enemy.type === 'skeleton' ? this._randInt(4, 9) : this._randInt(2, 5);
+          const goldDrop = enemy.type === 'boss'    ? this._randInt(30, 50)
+                         : enemy.type === 'archer'  ? this._randInt(6, 12)
+                         : enemy.type === 'bomber'  ? this._randInt(3, 7)
+                         : enemy.type === 'skeleton' ? this._randInt(4, 9)
+                         : this._randInt(2, 5);
           this.player.gold += goldDrop;
           this._updateHud();
           this._logEvent(`${enemy.type} defeated (+${enemy.xpReward} XP)`);
@@ -688,6 +709,20 @@ class MainScene extends Phaser.Scene {
       enemy.update(delta, this.player.x, this.player.y);
       if (enemy.wantsAttack && enemy._knockbackTimer <= 0 && Math.hypot(enemy.container.x - px, enemy.container.y - py) < CONTACT_RADIUS + 18) {
         this._playerTakeDamage(enemy.damage);
+      }
+      // Archer: fire arrow toward player
+      if (enemy.wantsShoot) {
+        if (enemy.type === 'boss') {
+          for (const angle of (enemy._shootAngles || [])) {
+            this._spawnEnemyArrow(enemy.container.x, enemy.container.y, angle);
+          }
+        } else {
+          this._spawnEnemyArrow(enemy.container.x, enemy.container.y, enemy._shootAngle ?? 0);
+        }
+      }
+      // Bomber: explode — area damage + self-destruct
+      if (enemy.wantsExplode) {
+        this._bomberExplode(enemy);
       }
     }
 
@@ -772,6 +807,51 @@ class MainScene extends Phaser.Scene {
           this._showDamageNumber(enemy.container.x, enemy.container.y - 24, 8, false, false);
         }
       }
+    }
+
+    // ── Enemy Arrows ──────────────────────────────────────────────────────────
+    for (let i = this._enemyArrows.length - 1; i >= 0; i--) {
+      const arrow = this._enemyArrows[i];
+      if (!arrow.active) { arrow.g.destroy(); this._enemyArrows.splice(i, 1); continue; }
+      arrow.x    += arrow.vx * (delta / 1000);
+      arrow.y    += arrow.vy * (delta / 1000);
+      arrow.life -= delta;
+      arrow.g.setPosition(arrow.x, arrow.y).setRotation(Math.atan2(arrow.vy, arrow.vx));
+      const col = Math.floor(arrow.x / this._tileW);
+      const row = Math.floor(arrow.y / this._tileH);
+      if (arrow.life <= 0 || this._wallTileMap.has(`${col},${row}`)) {
+        arrow.active = false;
+        continue;
+      }
+      if (this._iframes <= 0 && Math.hypot(arrow.x - px, arrow.y - py) < 20) {
+        this._playerTakeDamage(arrow.damage);
+        arrow.active = false;
+      }
+    }
+
+    // ── Trap Spikes ───────────────────────────────────────────────────────────
+    for (const trap of this._traps) {
+      trap.timer -= delta;
+      if (trap.timer <= 0) {
+        trap.active = !trap.active;
+        trap.timer  = trap.active ? TRAP_ACTIVE_MS : TRAP_IDLE_MS;
+        this._drawTrap(trap);
+      } else if (!trap.active && trap.timer < TRAP_WARN_MS) {
+        // Warning flash before activation
+        const flashOn = Math.floor(trap.timer / 80) % 2 === 0;
+        this._drawTrap(trap, flashOn);
+      }
+      if (trap.active && this._iframes <= 0) {
+        if (Math.hypot(trap.x - px, trap.y - py) < trap.radius) {
+          this._playerTakeDamage(TRAP_DAMAGE);
+        }
+      }
+    }
+
+    // ── Shop NPC prompts ──────────────────────────────────────────────────────
+    for (const shop of this._shopNpcs) {
+      const near = Math.hypot(shop.x - px, shop.y - py) < SHOP_INTERACT_RADIUS;
+      shop.promptText.setAlpha(near && !this._shopUiOpen ? 1 : 0);
     }
   }
 
@@ -931,6 +1011,8 @@ class MainScene extends Phaser.Scene {
     this._spawnChests();
     this._spawnEnemies();
     this._spawnPortal();
+    this._spawnShops();
+    this._spawnTraps();
   }
 
   _findSafeWorldPosition(worldX, worldY, preferredRoom = null) {
@@ -977,46 +1059,98 @@ class MainScene extends Phaser.Scene {
     this._chests = [];
     const allIds = Array.from(this.itemRegistry.keys()).filter(id => !id.startsWith('spell_'));
     const spellIds = Array.from(this.itemRegistry.keys()).filter(id => id.startsWith('spell_') && !this._playerOwnsItem(id));
-    // Chest in every room except first (spawn) and last (portal)
     for (let i = 1; i < this.rooms.length - 1; i++) {
       const r = this.rooms[i];
+      // Shop and trap rooms have no chest (shops have NPCs, traps are their own challenge)
+      if (r.type === 'shop' || r.type === 'trap') continue;
       const chestId = `floor:${this.dungeonLevel}:chest:${i}`;
       if (this._worldState.openedChests.includes(chestId)) continue;
       const cx = (r.cx + 0.5) * this._tileW, cy = (r.cy + 0.5) * this._tileH;
+      // Treasure rooms: offset chest slightly + guaranteed rare loot + more choices
+      const isTreasure = r.type === 'treasure';
       const loot = [allIds[this._randInt(0, allIds.length - 1)], 'potion_health'];
-      if (spellIds.length > 0 && this._randFloat() < 0.28) loot.push(spellIds[this._randInt(0, spellIds.length - 1)]);
+      if (isTreasure) {
+        // Add 2 extra items to the loot pool for more interesting picks
+        loot.push(allIds[this._randInt(0, allIds.length - 1)]);
+        if (spellIds.length > 0) loot.push(spellIds[this._randInt(0, spellIds.length - 1)]);
+      } else if (spellIds.length > 0 && this._randFloat() < 0.28) {
+        loot.push(spellIds[this._randInt(0, spellIds.length - 1)]);
+      }
       const chest = new Chest(this, cx, cy, loot);
-      chest.saveId = chestId;
+      chest.saveId    = chestId;
       chest.rollIndex = this._randInt(0, loot.length - 1);
+      chest.isTreasure = isTreasure;
       this._chests.push(chest);
+      // Visual marker for treasure room: gold ring on floor
+      if (isTreasure) this._drawTreasureRoomMarker(r);
     }
   }
 
   _spawnEnemies() {
     this._enemies = [];
+    const isBossFloor = this.dungeonLevel % 5 === 0;
     for (let i = 1; i < this.rooms.length; i++) {
       const r = this.rooms[i];
+      // No enemies in shop rooms
+      if (r.type === 'shop') continue;
+      // Boss floor: portal room gets the boss instead of regular enemies
+      if (isBossFloor && r.type === 'portal') {
+        this._spawnBoss(r, i);
+        continue;
+      }
       const bonus = this._worldState.difficulty === 'hard' ? 2 : 0;
-      const cap = this._worldState.difficulty === 'hard' ? 5 : 3;
-      const count = Math.min(cap, Math.ceil(this.dungeonLevel / 2) + this._randInt(0, 1) + bonus);
+      const cap   = this._worldState.difficulty === 'hard' ? 5 : 3;
+      // Trap rooms have fewer enemies (traps are the main hazard)
+      const roomCap = r.type === 'trap' ? Math.min(cap, 2) : cap;
+      const count = Math.min(roomCap, Math.ceil(this.dungeonLevel / 2) + this._randInt(0, 1) + bonus);
       for (let e = 0; e < count; e++) {
         const enemyId = `floor:${this.dungeonLevel}:enemy:${i}:${e}`;
         if (this._worldState.defeatedEnemies.includes(enemyId)) continue;
         const x = (r.x + 1 + this._randFloat() * (r.w - 2)) * this._tileW;
         const y = (r.y + 1 + this._randFloat() * (r.h - 2)) * this._tileH;
-        const type = this._randFloat() > 0.6 ? 'skeleton' : 'slime';
+        // Enemy type variety scales with dungeon level
+        const roll = this._randFloat();
+        let type;
+        if (this.dungeonLevel >= 4 && roll > 0.82) {
+          type = 'bomber';
+        } else if (this.dungeonLevel >= 2 && roll > 0.55) {
+          type = r.type === 'treasure' ? 'skeleton' : (roll > 0.75 ? 'archer' : 'skeleton');
+        } else if (roll > 0.40) {
+          type = 'skeleton';
+        } else {
+          type = 'slime';
+        }
+        // Treasure room gets at least one archer guardian on higher floors
+        if (r.type === 'treasure' && e === 0 && this.dungeonLevel >= 3) type = 'archer';
         const enemy = new Enemy(this, x, y, type);
         enemy.saveId = enemyId;
-        
         // Scale enemy stats based on Dungeon Level
         enemy.maxHp = Math.floor(enemy.maxHp * (1 + (this.dungeonLevel - 1) * 0.2));
-        enemy.hp = enemy.maxHp;
+        enemy.hp    = enemy.maxHp;
         enemy.damage = Math.floor(enemy.damage * (1 + (this.dungeonLevel - 1) * 0.15));
-        
         this.physics.add.collider(enemy.container, this._wallGroup);
         this._enemies.push(enemy);
       }
     }
+  }
+
+  _spawnBoss(room, roomIndex) {
+    const bossId = `floor:${this.dungeonLevel}:boss:${roomIndex}`;
+    if (this._worldState.defeatedEnemies.includes(bossId)) return;
+    const x = (room.cx + 0.5) * this._tileW;
+    const y = (room.cy + 0.5) * this._tileH;
+    const boss = new Enemy(this, x, y, 'boss');
+    boss.saveId = bossId;
+    boss.maxHp  = Math.floor(boss.maxHp * (1 + (this.dungeonLevel - 1) * 0.15));
+    boss.hp     = boss.maxHp;
+    boss.damage = Math.floor(boss.damage * (1 + (this.dungeonLevel - 1) * 0.1));
+    this.physics.add.collider(boss.container, this._wallGroup);
+    this._enemies.push(boss);
+    // Show boss warning toast
+    this.time.delayedCall(800, () => {
+      this._showToast('⚠ BOSS FLOOR ⚠');
+      this._logEvent(`Boss awakens on floor ${this.dungeonLevel}!`);
+    });
   }
 
   _spawnPortal() {
@@ -1043,6 +1177,253 @@ class MainScene extends Phaser.Scene {
 
   _portalUnlocked() {
     return this._enemies?.every(enemy => enemy.dead || !enemy.container.scene) ?? false;
+  }
+
+  // ── Enemy projectiles ─────────────────────────────────────────────────────
+
+  _spawnEnemyArrow(originX, originY, angle) {
+    const g = this.add.graphics().setDepth(9).setPosition(originX, originY);
+    // Arrow: thin elongated shape pointing in travel direction
+    g.fillStyle(0xfcd34d, 1);
+    g.fillRect(-8, -2, 16, 4);
+    g.fillStyle(0x7c3aed, 1);
+    g.fillTriangle(8, -3, 14, 0, 8, 3);
+    g.setRotation(angle);
+    this._enemyArrows.push({
+      g,
+      x: originX, y: originY,
+      vx: Math.cos(angle) * ENEMY_ARROW_SPEED,
+      vy: Math.sin(angle) * ENEMY_ARROW_SPEED,
+      damage: ENEMY_ARROW_DAMAGE,
+      life: ENEMY_ARROW_LIFE,
+      active: true,
+    });
+  }
+
+  _bomberExplode(enemy) {
+    const ex = enemy.container.x;
+    const ey = enemy.container.y;
+    // Visual explosion burst
+    this._spawnPickupParticles(ex, ey, 0xf97316);
+    this._spawnPickupParticles(ex, ey, 0xfbbf24);
+    // Camera shake
+    this.cameras.main.shake(350, 0.02);
+    // Area damage to player
+    if (Math.hypot(ex - this.player.x, ey - this.player.y) < BOMBER_EXPLODE_RADIUS) {
+      this._playerTakeDamage(enemy.damage);
+    }
+    // Kill the bomber
+    enemy.takeDamage(9999);
+  }
+
+  // ── Room special features ─────────────────────────────────────────────────
+
+  _spawnShops() {
+    this._shopNpcs = [];
+    const allIds  = Array.from(this.itemRegistry.keys());
+    for (const room of this.rooms) {
+      if (room.type !== 'shop') continue;
+      const nx = (room.cx + 0.5) * this._tileW;
+      const ny = (room.cy + 0.5) * this._tileH;
+      // Pick 3 random items for sale; price = item value or xp cost
+      const items = Array.from({ length: SHOP_ITEM_COUNT }, () => {
+        const id  = allIds[this._randInt(0, allIds.length - 1)];
+        const def = this.itemRegistry.get(id);
+        return { id, def, xpCost: def ? Math.max(20, Math.floor((def.value || 40) * 0.6)) : 20 };
+      });
+      // NPC graphic
+      const g = this.add.graphics().setDepth(6).setPosition(nx, ny);
+      this._drawShopNpc(g);
+      // Prompt text
+      const promptText = this.add.text(nx, ny - 54, '[F] Shop', {
+        fontFamily: 'monospace', fontSize: '12px', color: '#fbbf24',
+        stroke: '#000000', strokeThickness: 3,
+      }).setOrigin(0.5).setDepth(32).setAlpha(0);
+      this._shopNpcs.push({ x: nx, y: ny, items, g, promptText });
+    }
+  }
+
+  _drawShopNpc(g) {
+    g.clear();
+    // Shadow
+    g.fillStyle(0x000000, 0.28); g.fillEllipse(2, 28, 32, 10);
+    // Robe bottom
+    g.fillStyle(0x1e3a8a, 1); g.fillRect(-14, 4, 28, 24);
+    // Body
+    g.fillStyle(0x1d4ed8, 1); g.fillRect(-12, -14, 24, 20);
+    // Arms
+    g.fillStyle(0x1d4ed8, 1); g.fillRect(-20, -12, 10, 16); g.fillRect(10, -12, 10, 16);
+    // Head
+    g.fillStyle(0xfde68a, 1); g.fillEllipse(0, -22, 20, 20);
+    // Wizard hat
+    g.fillStyle(0x1e3a8a, 1); g.fillRect(-12, -32, 24, 10);
+    g.fillTriangle(-10, -32, 10, -32, 0, -52);
+    g.fillStyle(0xfbbf24, 1); g.fillRect(-12, -34, 24, 4);
+    // Eyes
+    g.fillStyle(0x111111, 1); g.fillCircle(-4, -22, 2); g.fillCircle(4, -22, 2);
+    // Gold coin sparkle
+    g.fillStyle(0xfbbf24, 1); g.fillCircle(16, -6, 5);
+    g.fillStyle(0xfef08a, 0.8); g.fillCircle(16, -6, 3);
+  }
+
+  _openShopUi(shop) {
+    if (this._shopUiOpen) return;
+    this._shopUiOpen = true;
+    const { width, height } = this.scale;
+    const cx = width / 2, cy = height / 2;
+    const elements = [];
+
+    const overlay = this.add.graphics().setDepth(500).setScrollFactor(0);
+    overlay.fillStyle(0x000000, 0.82).fillRect(0, 0, width, height);
+    elements.push(overlay);
+
+    const title = this.add.text(cx, cy - 160, 'MERCHANT', {
+      fontFamily: 'monospace', fontSize: '26px', color: '#fbbf24',
+      stroke: '#000000', strokeThickness: 4,
+    }).setOrigin(0.5).setDepth(501).setScrollFactor(0);
+    elements.push(title);
+
+    const sub = this.add.text(cx, cy - 128, 'Spend XP to buy items', {
+      fontFamily: 'monospace', fontSize: '13px', color: '#94a3b8',
+    }).setOrigin(0.5).setDepth(501).setScrollFactor(0);
+    elements.push(sub);
+
+    const closeAll = () => {
+      elements.forEach(e => e.destroy());
+      this._shopUiOpen = false;
+    };
+
+    shop.items.forEach((shopItem, idx) => {
+      const iy = cy - 70 + idx * 68;
+      const def = shopItem.def;
+      if (!def) return;
+      const rarityCol = { common: '#9ca3af', uncommon: '#22c55e', rare: '#3b82f6', epic: '#a855f7', legendary: '#f59e0b' }[def.rarity] || '#9ca3af';
+      const bg = this.add.graphics().setDepth(501).setScrollFactor(0);
+      const drawBg = (hover) => {
+        bg.clear();
+        bg.fillStyle(hover ? 0x1e293b : 0x0f172a, 0.95).fillRoundedRect(cx - 200, iy - 24, 400, 52, 8);
+        bg.lineStyle(2, hover ? 0x3b82f6 : 0x334155, 1).strokeRoundedRect(cx - 200, iy - 24, 400, 52, 8);
+      };
+      drawBg(false);
+      elements.push(bg);
+
+      const nameText = this.add.text(cx - 180, iy - 10, def.name, {
+        fontFamily: 'monospace', fontSize: '14px', color: rarityCol, stroke: '#000', strokeThickness: 2,
+      }).setDepth(502).setScrollFactor(0);
+      elements.push(nameText);
+
+      const descText = this.add.text(cx - 180, iy + 8, def.description?.slice(0, 45) ?? '', {
+        fontFamily: 'monospace', fontSize: '10px', color: '#64748b',
+      }).setDepth(502).setScrollFactor(0);
+      elements.push(descText);
+
+      const priceText = this.add.text(cx + 190, iy, `${shopItem.xpCost} XP`, {
+        fontFamily: 'monospace', fontSize: '13px', color: '#fbbf24',
+      }).setOrigin(1, 0.5).setDepth(502).setScrollFactor(0);
+      elements.push(priceText);
+
+      // Invisible hit zone
+      const hitZone = this.add.zone(cx, iy, 400, 52).setDepth(503).setScrollFactor(0).setInteractive();
+      elements.push(hitZone);
+      hitZone.on('pointerover', () => drawBg(true));
+      hitZone.on('pointerout',  () => drawBg(false));
+      hitZone.on('pointerdown', () => {
+        if (this.player.xp < shopItem.xpCost) {
+          this._showToast('Not enough XP!');
+          return;
+        }
+        const added = this.player.addItem(def, 1);
+        if (!added) { this._showToast('Inventory full!'); return; }
+        this.player.xp -= shopItem.xpCost;
+        this._updateHud();
+        this._logEvent(`Bought ${def.name} for ${shopItem.xpCost} XP`);
+        this._showToast(`Bought: ${def.name}`);
+        closeAll();
+      });
+    });
+
+    const closeBtn = this.add.text(cx, cy + 140, '[ESC or click] Close', {
+      fontFamily: 'monospace', fontSize: '12px', color: '#64748b',
+    }).setOrigin(0.5).setDepth(502).setScrollFactor(0).setInteractive();
+    elements.push(closeBtn);
+    closeBtn.on('pointerdown', closeAll);
+
+    // Close on ESC
+    const escHandler = this.input.keyboard.once('keydown-ESC', closeAll);
+    elements.push({ destroy: () => { /* escHandler cleanup handled by once */ } });
+  }
+
+  _spawnTraps() {
+    this._traps = [];
+    for (const room of this.rooms) {
+      if (room.type !== 'trap') continue;
+      this._drawTrapRoomMarker(room);
+      // Place spikes in a pattern across the room floor
+      const tileW = this._tileW, tileH = this._tileH;
+      for (let row = room.y + 1; row < room.y + room.h - 1; row++) {
+        for (let col = room.x + 1; col < room.x + room.w - 1; col++) {
+          if ((row + col) % 2 !== 0) continue;  // checkerboard pattern
+          const tx = (col + 0.5) * tileW;
+          const ty = (row + 0.5) * tileH;
+          const g = this.add.graphics().setDepth(2).setPosition(tx, ty);
+          const trap = { x: tx, y: ty, g, active: false, timer: TRAP_IDLE_MS * (0.4 + Math.random() * 0.6), radius: 18 };
+          this._drawTrap(trap);
+          this._traps.push(trap);
+        }
+      }
+    }
+  }
+
+  _drawTrap(trap, warn = false) {
+    const g = trap.g;
+    g.clear();
+    if (trap.active) {
+      // Active spikes (dangerous) — bright red
+      g.fillStyle(0xef4444, 1); g.fillRect(-7, -7, 14, 14);
+      g.fillStyle(0xfca5a5, 0.8);
+      g.fillTriangle(-6, 7, 0, -8, 6, 7);   // up spike
+      g.fillTriangle(-8, -6, 7, 0, -8, 6);  // side spike
+    } else if (warn) {
+      // Warning (about to activate) — amber glow
+      g.fillStyle(0xf59e0b, 0.7); g.fillRect(-5, -5, 10, 10);
+    } else {
+      // Dormant — subtle floor marking
+      g.fillStyle(0x374151, 0.5); g.fillRect(-5, -5, 10, 10);
+      g.lineStyle(1, 0x4b5563, 0.5);
+      g.lineBetween(-5, 0, 5, 0); g.lineBetween(0, -5, 0, 5);
+    }
+  }
+
+  _drawTreasureRoomMarker(room) {
+    const g = this.add.graphics().setDepth(1);
+    const tileW = this._tileW, tileH = this._tileH;
+    // Gold-tinted overlay on floor tiles
+    for (let row = room.y; row < room.y + room.h; row++) {
+      for (let col = room.x; col < room.x + room.w; col++) {
+        g.fillStyle(0xfbbf24, 0.07).fillRect(col * tileW, row * tileH, tileW - 1, tileH - 1);
+      }
+    }
+    // Corner gems
+    const corners = [
+      [room.x, room.y], [room.x + room.w - 1, room.y],
+      [room.x, room.y + room.h - 1], [room.x + room.w - 1, room.y + room.h - 1],
+    ];
+    for (const [c, r] of corners) {
+      const wx = (c + 0.5) * tileW, wy = (r + 0.5) * tileH;
+      g.fillStyle(0xfbbf24, 0.6).fillRect(wx - 4, wy - 4, 8, 8);
+      g.fillStyle(0xfef08a, 0.8).fillRect(wx - 2, wy - 2, 4, 4);
+    }
+  }
+
+  _drawTrapRoomMarker(room) {
+    const g = this.add.graphics().setDepth(1);
+    const tileW = this._tileW, tileH = this._tileH;
+    // Red-tinted overlay on floor tiles
+    for (let row = room.y; row < room.y + room.h; row++) {
+      for (let col = room.x; col < room.x + room.w; col++) {
+        g.fillStyle(0xef4444, 0.07).fillRect(col * tileW, row * tileH, tileW - 1, tileH - 1);
+      }
+    }
   }
 
   _nextLevel() {
@@ -1262,6 +1643,11 @@ class MainScene extends Phaser.Scene {
     const chestNearby = this._chests.find(c => !c.opened && c.isNearPlayer(px, py));
     if (chestNearby) {
       this._tryOpenNearbyChest();
+      return;
+    }
+    const shopNearby = this._shopNpcs.find(s => Math.hypot(s.x - px, s.y - py) < SHOP_INTERACT_RADIUS);
+    if (shopNearby) {
+      this._openShopUi(shopNearby);
       return;
     }
     this._castFireball();
@@ -1924,7 +2310,18 @@ class MainScene extends Phaser.Scene {
     this.time.delayedCall(750, () => emitter.destroy());
   }
 
-  _spawnDeathParticles(x, y, type) { this._spawnPickupParticles(x, y, type === 'slime' ? 0x22cc44 : 0xe2e8f0); }
+  _spawnDeathParticles(x, y, type) {
+    const col = type === 'slime'    ? 0x22cc44
+              : type === 'archer'   ? 0xd97706
+              : type === 'bomber'   ? 0xf97316
+              : type === 'boss'     ? 0xa855f7
+              : 0xe2e8f0;
+    this._spawnPickupParticles(x, y, col);
+    if (type === 'bomber' || type === 'boss') {
+      // Extra burst
+      this._spawnPickupParticles(x, y, 0xfbbf24);
+    }
+  }
 
   _showDamageNumber(x, y, amount, isPlayer, isCrit = false) {
     const txt = this.add.text(x, y, `${isPlayer ? '-' : ''}${amount}`, {

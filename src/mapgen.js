@@ -142,5 +142,21 @@ export function generateDungeon(seed) {
     Math.hypot(a.cx - midX, a.cy - midY) - Math.hypot(b.cx - midX, b.cy - midY)
   );
 
+  // Assign room types
+  rooms[0].type = 'spawn';
+  rooms[rooms.length - 1].type = 'portal';
+
+  // Collect middle room indices and shuffle them (seeded) for random type assignment
+  const midIndices = [];
+  for (let i = 1; i < rooms.length - 1; i++) midIndices.push(i);
+  for (let i = midIndices.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const tmp = midIndices[i]; midIndices[i] = midIndices[j]; midIndices[j] = tmp;
+  }
+  const specialTypes = ['shop', 'trap', 'treasure'];
+  for (let i = 0; i < midIndices.length; i++) {
+    rooms[midIndices[i]].type = specialTypes[i] || 'normal';
+  }
+
   return { map, rooms };
 }
