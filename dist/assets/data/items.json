@@ -1,0 +1,179 @@
+{
+  "items": [
+    {
+      "id": "sword_iron",
+      "name": "Iron Sword",
+      "type": "weapon",
+      "slot": "main_hand",
+      "rarity": "common",
+      "description": "A sturdy iron sword. Reliable in a pinch.",
+      "lore": "The kind of blade every first delver swears they will eventually replace.",
+      "icon": "sword_iron",
+      "atlas_key": "sword_iron",
+      "particle_color": "#d1d5db",
+      "stats": {
+        "attack": 12,
+        "attack_speed": 1.2
+      },
+      "value": 50
+    },
+    {
+      "id": "pickaxe_steel",
+      "name": "Steel Pickaxe",
+      "type": "tool",
+      "slot": "main_hand",
+      "rarity": "uncommon",
+      "description": "A heavy steel pickaxe. Can mine ore and crack skulls.",
+      "lore": "It was forged for quarry work, but the edge learned other duties underground.",
+      "icon": "pickaxe_steel",
+      "atlas_key": "pickaxe_steel",
+      "particle_color": "#94a3b8",
+      "stats": {
+        "attack": 8,
+        "mining_power": 20,
+        "attack_speed": 0.8
+      },
+      "value": 75
+    },
+    {
+      "id": "chestplate_leather",
+      "name": "Leather Chestplate",
+      "type": "armor",
+      "slot": "chest",
+      "rarity": "common",
+      "description": "Stitched leather armor. Better than nothing.",
+      "lore": "Smells faintly of oil, smoke, and someone else's bad decisions.",
+      "icon": "chestplate_leather",
+      "atlas_key": "chestplate_leather",
+      "particle_color": "#b45309",
+      "stats": {
+        "defense": 8,
+        "max_hp": 10
+      },
+      "value": 40
+    },
+    {
+      "id": "helmet_iron",
+      "name": "Iron Helmet",
+      "type": "armor",
+      "slot": "head",
+      "rarity": "common",
+      "description": "A basic iron helmet. Protects the most important part.",
+      "lore": "Hammered flat enough to survive a goblin's optimism.",
+      "icon": "helmet_iron",
+      "atlas_key": "helmet_iron",
+      "particle_color": "#9ca3af",
+      "stats": {
+        "defense": 5,
+        "max_hp": 5
+      },
+      "value": 35
+    },
+    {
+      "id": "pickaxe_bronze",
+      "name": "Bronze Pickaxe",
+      "type": "tool",
+      "slot": "main_hand",
+      "rarity": "common",
+      "description": "An old bronze pickaxe. Better days are behind it, but it still swings.",
+      "lore": "Passed through too many hands to remember its first owner.",
+      "icon": "pickaxe_bronze",
+      "atlas_key": "pickaxe_bronze",
+      "particle_color": "#b45309",
+      "stats": {
+        "attack": 5,
+        "mining_power": 10,
+        "attack_speed": 0.7
+      },
+      "value": 30
+    },
+    {
+      "id": "potion_health",
+      "name": "Health Potion",
+      "type": "consumable",
+      "slot": null,
+      "rarity": "common",
+      "description": "Restores 25 HP when consumed.",
+      "lore": "Sweet, bitter, and suspiciously warm.",
+      "icon": "potion_health",
+      "atlas_key": "potion_health",
+      "particle_color": "#ef4444",
+      "stats": {
+        "heal": 25
+      },
+      "value": 20,
+      "stackable": true,
+      "max_stack": 3
+    },
+    {
+      "id": "sword_moonsteel",
+      "name": "Moonsteel Sword",
+      "type": "weapon",
+      "slot": "main_hand",
+      "rarity": "rare",
+      "description": "A cold silver blade that keeps a clean edge.",
+      "lore": "It reflects light even where no stars should reach.",
+      "icon": "sword_moonsteel",
+      "atlas_key": "sword_moonsteel",
+      "particle_color": "#7dd3fc",
+      "stats": {
+        "attack": 18,
+        "attack_speed": 1.3
+      },
+      "value": 120
+    },
+    {
+      "id": "chestplate_warden",
+      "name": "Warden Plate",
+      "type": "armor",
+      "slot": "chest",
+      "rarity": "epic",
+      "description": "Heavy plate engraved with warding sigils.",
+      "lore": "The old keep fell, but its oath still clings to the steel.",
+      "icon": "chestplate_warden",
+      "atlas_key": "chestplate_warden",
+      "particle_color": "#a855f7",
+      "stats": {
+        "defense": 14,
+        "max_hp": 22
+      },
+      "value": 220
+    },
+    {
+      "id": "spell_lightning_strike",
+      "name": "Lightning Strike",
+      "type": "spell",
+      "slot": null,
+      "rarity": "rare",
+      "description": "Calls down chain lightning to carve away half the current HP of nearby enemies.",
+      "lore": "Old battlemages called it mercy because it always leaves something alive to regret the lesson.",
+      "icon": "spell_lightning_strike",
+      "atlas_key": "spell_lightning_strike",
+      "particle_color": "#fde047",
+      "use_key": "R",
+      "stats": {
+        "radius": 170,
+        "power": 50
+      },
+      "value": 160
+    },
+    {
+      "id": "spell_void_ball",
+      "name": "Void Ball",
+      "type": "spell",
+      "slot": null,
+      "rarity": "epic",
+      "description": "Launches a drifting void orb that drags enemies into its path from far down the corridor.",
+      "lore": "The sphere contains no darkness at all. Darkness implies that something remains to be seen.",
+      "icon": "spell_void_ball",
+      "atlas_key": "spell_void_ball",
+      "particle_color": "#67e8f9",
+      "use_key": "E",
+      "stats": {
+        "pull": 1,
+        "duration": 1400
+      },
+      "value": 250
+    }
+  ]
+}
