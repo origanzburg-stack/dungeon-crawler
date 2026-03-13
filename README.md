@@ -1,4 +1,4 @@
-# The JSON Crawler
+# The Dungeon Crawler
 
 A Phaser-based dungeon crawler with procedural floors, persistent progression, hotbar/equipment systems, fog of war, save/continue, loot logging, pause/debug tools, and seeded dungeon sharing.
 
