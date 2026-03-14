@@ -37,9 +37,11 @@ const SAVE_KEY       = 'dungeon_crawler_save';
 const HIGH_SCORE_KEY = 'dungeon_crawler_high_scores';
 const INPUT_BUFFER_MS = 140;
 const MOVE_COYOTE_MS = 90;
-const FIREBALL_SPEED = 420;
-const FIREBALL_COOLDOWN = 550;
-const FIREBALL_DAMAGE = 16;
+const FIREBALL_SPEED    = 400;
+const FIREBALL_COOLDOWN = 620;
+const FIREBALL_DAMAGE   = 16;
+const FIREBALL_RANGE    = 230;   // px — bolts die after this distance
+const FIREBALL_SPREAD   = 0.22;  // radians — angle between the 3 bolts
 const LIGHTNING_RADIUS = 170;
 const LIGHTNING_COOLDOWN = 2600;
 const VOID_BALL_SPEED = 250;
@@ -798,20 +800,21 @@ class MainScene extends Phaser.Scene {
         this._fireballs.splice(i, 1);
         continue;
       }
+      const step = FIREBALL_SPEED * (delta / 1000);
       fireball.x += fireball.vx * (delta / 1000);
       fireball.y += fireball.vy * (delta / 1000);
-      fireball.life -= delta;
+      fireball.traveled = (fireball.traveled ?? 0) + step;
       fireball.g.setPosition(fireball.x, fireball.y);
 
       const col = Math.floor(fireball.x / this._tileW);
       const row = Math.floor(fireball.y / this._tileH);
-      if (fireball.life <= 0 || this._wallTileMap.has(`${col},${row}`)) {
+      if (fireball.traveled >= FIREBALL_RANGE || this._wallTileMap.has(`${col},${row}`)) {
         fireball.active = false;
         this._spawnPickupParticles(fireball.x, fireball.y, 0xf97316);
         continue;
       }
 
-      for (const enemy of this._enemies) {
+      for (const enemy of [...this._enemies, ...(this._optionalBosses ?? [])]) {
         if (!enemy.isAlive) continue;
         const dist = Math.hypot(enemy.container.x - fireball.x, enemy.container.y - fireball.y);
         if (dist > 28) continue;
@@ -1118,8 +1121,8 @@ class MainScene extends Phaser.Scene {
     const spellIds = Array.from(this.itemRegistry.keys()).filter(id => id.startsWith('spell_') && !this._playerOwnsItem(id));
     for (let i = 1; i < this.rooms.length - 1; i++) {
       const r = this.rooms[i];
-      // Trap and shop rooms have no chest
-      if (r.type === 'trap' || r.type === 'shop') continue;
+      // Only shop rooms have no chest (they have a merchant instead)
+      if (r.type === 'shop') continue;
       const chestId = `floor:${this.dungeonLevel}:chest:${i}`;
       if (this._worldState.openedChests.includes(chestId)) continue;
       const cx = (r.cx + 0.5) * this._tileW, cy = (r.cy + 0.5) * this._tileH;
@@ -1894,19 +1897,26 @@ class MainScene extends Phaser.Scene {
     const ptr = this.input.activePointer;
     const targetX = ptr.worldX ?? ptr.x;
     const targetY = ptr.worldY ?? ptr.y;
-    const angle = Math.atan2(targetY - this.player.y, targetX - this.player.x);
-    const g = this.add.graphics().setDepth(12).setPosition(this.player.x, this.player.y);
-    g.fillStyle(0xfb923c, 1).fillCircle(0, 0, 10);
-    g.fillStyle(0xfef08a, 0.8).fillCircle(0, 0, 5);
-    this._fireballs.push({
-      g,
-      x: this.player.x,
-      y: this.player.y,
-      vx: Math.cos(angle) * FIREBALL_SPEED,
-      vy: Math.sin(angle) * FIREBALL_SPEED,
-      life: 1100,
-      active: true,
-    });
+    const baseAngle = Math.atan2(targetY - this.player.y, targetX - this.player.x);
+
+    // Fire 3 rectangular bolts in a spread
+    for (let i = -1; i <= 1; i++) {
+      const angle = baseAngle + i * FIREBALL_SPREAD;
+      const g = this.add.graphics().setDepth(12).setPosition(this.player.x, this.player.y);
+      // Elongated rectangle pointing in travel direction
+      g.fillStyle(0xfb923c, 1).fillRect(-12, -4, 24, 8);
+      g.fillStyle(0xfef08a, 0.9).fillRect(-8, -2, 14, 4);
+      g.fillStyle(0xffffff, 0.5).fillRect(-6, -1, 6, 2);
+      g.setRotation(angle);
+      this._fireballs.push({
+        g,
+        x: this.player.x, y: this.player.y,
+        vx: Math.cos(angle) * FIREBALL_SPEED,
+        vy: Math.sin(angle) * FIREBALL_SPEED,
+        traveled: 0,
+        active: true,
+      });
+    }
     this._spawnPickupParticles(this.player.x, this.player.y, 0xfb923c);
   }
 
