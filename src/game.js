@@ -528,6 +528,7 @@ class MainScene extends Phaser.Scene {
     this.qKey = this.input.keyboard.addKey('Q');
     this.rKey = this.input.keyboard.addKey('R');
     this.eKey = this.input.keyboard.addKey('E');
+    this.tKey = this.input.keyboard.addKey('T');
     this.escKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
     this.backtickKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.BACKTICK);
     this._numKeys = Array.from({ length: HOTBAR_SLOTS }, (_, i) => this.input.keyboard.addKey(`${i + 1}`));
@@ -644,6 +645,7 @@ class MainScene extends Phaser.Scene {
     if (Phaser.Input.Keyboard.JustDown(this.qKey)) this._clearActiveHotbarSlot();
     if (Phaser.Input.Keyboard.JustDown(this.rKey)) this._castLightningStrike();
     if (Phaser.Input.Keyboard.JustDown(this.eKey)) this._castVoidBall();
+    if (Phaser.Input.Keyboard.JustDown(this.tKey)) this._handleShopKey();
 
     // Check Portal
     if (this._portal && this._portalUnlocked() && Math.hypot(px - this._portal.x, py - this._portal.y) < PORTAL_RADIUS) {
@@ -1247,7 +1249,7 @@ class MainScene extends Phaser.Scene {
       const g = this.add.graphics().setDepth(6).setPosition(nx, ny);
       this._drawShopNpc(g);
       // Prompt text
-      const promptText = this.add.text(nx, ny - 54, '[F] Shop', {
+      const promptText = this.add.text(nx, ny - 54, '[T] Shop', {
         fontFamily: 'monospace', fontSize: '12px', color: '#fbbf24',
         stroke: '#000000', strokeThickness: 3,
       }).setOrigin(0.5).setDepth(32).setAlpha(0);
@@ -1659,18 +1661,19 @@ class MainScene extends Phaser.Scene {
   _handleFKey() {
     const px = this.player.x;
     const py = this.player.y;
-    // Shop check first (takes priority over chest and fireball)
-    const shopNearby = this._shopNpcs?.find(s => Math.hypot(s.x - px, s.y - py) < 72);
-    if (shopNearby) {
-      this._openShopUi(shopNearby);
-      return;
-    }
     const chestNearby = this._chests.find(c => !c.opened && c.isNearPlayer(px, py));
     if (chestNearby) {
       this._tryOpenNearbyChest();
       return;
     }
     this._castFireball();
+  }
+
+  _handleShopKey() {
+    const px = this.player.x;
+    const py = this.player.y;
+    const shopNearby = this._shopNpcs?.find(s => Math.hypot(s.x - px, s.y - py) < 100);
+    if (shopNearby) this._openShopUi(shopNearby);
   }
 
   _castFireball() {
