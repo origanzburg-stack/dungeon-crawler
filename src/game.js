@@ -296,7 +296,7 @@ class MenuScene extends Phaser.Scene {
     const cx = width / 2, cy = height / 2;
     audioManager.startMusic(this);
 
-    this.add.text(cx, cy - 80, 'THE JSON CRAWLER', {
+    this.add.text(cx, cy - 80, 'THE DUNGEON CRAWLER', {
       fontFamily: 'monospace', fontSize: '38px', color: '#a855f7', stroke: '#000000', strokeThickness: 6
     }).setOrigin(0.5);
 
