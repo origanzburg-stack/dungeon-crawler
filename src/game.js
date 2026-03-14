@@ -1113,21 +1113,19 @@ class MainScene extends Phaser.Scene {
         // Enemy type variety scales with dungeon level
         const roll = this._randFloat();
         let type;
-        if (this.dungeonLevel >= 5 && roll > 0.88) {
-          type = 'mage';
-        } else if (this.dungeonLevel >= 4 && roll > 0.78) {
+        if (this.dungeonLevel >= 3 && roll > 0.82) {
           type = 'bomber';
-        } else if (this.dungeonLevel >= 3 && roll > 0.60) {
-          type = 'archer';
-        } else if (roll > 0.40) {
-          type = 'skeleton';
+        } else if (roll > 0.62) {
+          type = 'mage';      // ~38% — mages from floor 1
+        } else if (roll > 0.38) {
+          type = 'archer';    // ~24%
+        } else if (roll > 0.18) {
+          type = 'skeleton';  // ~20%
         } else {
-          type = 'slime';
+          type = 'slime';     // ~18%
         }
-        // Treasure room: first enemy is always a mage guardian (floor 4+) or archer (floor 2+)
-        if (r.type === 'treasure' && e === 0) {
-          type = this.dungeonLevel >= 4 ? 'mage' : (this.dungeonLevel >= 2 ? 'archer' : 'skeleton');
-        }
+        // Treasure room: first enemy is always a mage guardian
+        if (r.type === 'treasure' && e === 0) type = 'mage';
         const enemy = new Enemy(this, x, y, type);
         enemy.saveId = enemyId;
         // Scale enemy stats based on Dungeon Level

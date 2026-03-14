@@ -67,14 +67,13 @@ export class Enemy {
     } else if (type === 'mage') {
       this.maxHp          = 50;
       this.damage         = 20;   // bolt damage (handled by game.js)
-      this.speed          = 52;
-      this.aggroRadius    = 320;
-      this.attackRange    = 240;  // casts when dist <= this
-      this.minRange       = 100;  // backs away when dist < this
-      this.attackCooldown = 2600;
+      this.speed          = 58;
+      this.aggroRadius    = 340;
+      this.attackRange    = 230;  // fires when dist <= this
+      this.minRange       = 90;   // backs away when dist < this
+      this.attackCooldown = 2200;
       this.xpReward       = 40;
-      this._castTimer     = 0;    // windup before bolt fires
-      this._casting       = false;
+      this._charging      = 0;    // ms remaining in charge-up visual (not blocking)
     } else if (type === 'bomber') {
       this.maxHp          = 22;
       this.damage         = 42;   // explosion damage (handled by game.js)
@@ -101,8 +100,8 @@ export class Enemy {
     this.hp = this.maxHp;
 
     // ── AI state ─────────────────────────────────────────────────────────────
-    this._state        = 'idle';
-    this._wanderTimer  = Math.random() * 1500;
+    this._state        = type === 'mage' ? (Math.random() > 0.5 ? 'strafeLeft' : 'strafeRight') : 'idle';
+    this._wanderTimer  = 600 + Math.random() * 800;
     this._wanderVx     = 0;
     this._wanderVy     = 0;
     this._attackTimer  = Math.random() * 400;
@@ -200,6 +199,10 @@ export class Enemy {
     this.container.setScale(sx, sy);
 
     this._drawHpBar();
+    // Mage and bomber need per-frame redraw for their animated visuals
+    if (this.type === 'mage' || this.type === 'bomber') {
+      this._draw(this._flashTimer > 0);
+    }
   }
 
   /**
@@ -284,33 +287,28 @@ export class Enemy {
     const dist = Math.hypot(dx, dy);
 
     this._attackTimer -= dt;
-
-    if (this._casting) {
-      // Stand still during cast windup (0.55s)
-      this._physBody.setVelocity(0, 0);
-      this._castTimer -= dt;
-      if (this._castTimer <= 0) {
-        this._casting    = false;
-        this._shootAngle = Math.atan2(dy, dx);
-        this._wantsShoot = true;
-      }
-      return;
-    }
+    if (this._charging > 0) this._charging -= dt;
 
     if (dist < this.minRange) {
       // Too close — back away
       this._state = 'backpedal';
       this._physBody.setVelocity(-(dx / dist) * this.speed, -(dy / dist) * this.speed);
     } else if (dist <= this.attackRange && dist < this.aggroRadius) {
-      // In range — stop and begin casting
-      this._physBody.setVelocity(0, 0);
+      // Sweet spot — strafe sideways slightly, fire when ready
+      const perp = this._state === 'strafeLeft' ? 1 : -1;
+      this._physBody.setVelocity((-dy / dist) * this.speed * 0.35 * perp, (dx / dist) * this.speed * 0.35 * perp);
+      if (this._wanderTimer <= 0) {
+        this._state = this._state === 'strafeLeft' ? 'strafeRight' : 'strafeLeft';
+        this._wanderTimer = 900 + Math.random() * 700;
+      }
       if (this._attackTimer <= 0) {
         this._attackTimer = this.attackCooldown;
-        this._casting     = true;
-        this._castTimer   = 550;   // ms windup
+        this._shootAngle  = Math.atan2(dy, dx);
+        this._wantsShoot  = true;
+        this._charging    = 300;
       }
     } else if (dist < this.aggroRadius) {
-      // Reposition to get in range
+      // Too far — move closer
       this._state = 'chase';
       if (dist > 1) {
         this._physBody.setVelocity((dx / dist) * this.speed, (dy / dist) * this.speed);
@@ -477,10 +475,10 @@ export class Enemy {
       for (let t = 0; t < 4; t++) g.fillRect(-7 + t * 4, -10, 3, 3);
 
     } else if (this.type === 'mage') {
-      const casting = this._casting;
+      const charging = (this._charging ?? 0) > 0;
       const robe  = flashing ? 0xff3333 : 0x6d28d9;
       const dark  = flashing ? 0xcc0000 : 0x4c1d95;
-      const glow  = flashing ? 0xffffff : (casting ? 0x67e8f9 : 0xa78bfa);
+      const glow  = flashing ? 0xffffff : (charging ? 0x67e8f9 : 0xa78bfa);
       // Shadow
       g.fillStyle(0x000000, 0.28); g.fillEllipse(2, 28, 26, 10);
       // Robe (long)
@@ -493,11 +491,14 @@ export class Enemy {
       g.fillStyle(dark, 1); g.fillRect(-19, -12, 10, 16); g.fillRect(9, -12, 10, 16);
       // Staff (right hand)
       g.lineStyle(3, flashing ? 0xff3333 : 0x78350f, 1); g.lineBetween(18, -12, 18, -40);
-      // Orb at staff tip — glows when casting
-      g.fillStyle(glow, casting ? 1 : 0.7); g.fillCircle(18, -42, casting ? 7 : 5);
-      g.fillStyle(0xffffff, casting ? 0.8 : 0.3); g.fillCircle(18, -42, casting ? 3 : 2);
-      // Runes on robe (active when casting)
-      if (casting) {
+      // Orb at staff tip — pulses when charging
+      g.fillStyle(glow, charging ? 1 : 0.7); g.fillCircle(18, -42, charging ? 8 : 5);
+      g.fillStyle(0xffffff, charging ? 0.9 : 0.3); g.fillCircle(18, -42, charging ? 4 : 2);
+      if (charging) {
+        g.lineStyle(2, 0x67e8f9, 0.6); g.strokeCircle(18, -42, 12);
+      }
+      // Runes on robe (lit when charging)
+      if (charging) {
         g.lineStyle(1, 0x67e8f9, 0.8);
         g.lineBetween(-8, 4, -2, 4); g.lineBetween(-8, 10, -2, 10);
         g.lineBetween(2, 4, 8, 4);   g.lineBetween(2, 10, 8, 10);
@@ -508,12 +509,12 @@ export class Enemy {
       g.fillStyle(dark, 1);
       g.fillTriangle(-10, -28, 10, -28, 0, -50);
       g.fillRect(-10, -32, 20, 6);
-      // Eyes — glow when casting
-      g.fillStyle(casting ? glow : 0x111111, 1); g.fillCircle(-4, -22, 2); g.fillCircle(4, -22, 2);
-      // Casting aura
-      if (casting) {
-        g.lineStyle(2, 0x67e8f9, 0.5); g.strokeCircle(0, -22, 14);
-        g.lineStyle(1, 0xa78bfa, 0.3); g.strokeCircle(0, 0, 22);
+      // Eyes — glow when charging
+      g.fillStyle(charging ? glow : 0x111111, 1); g.fillCircle(-4, -22, 2); g.fillCircle(4, -22, 2);
+      // Charging aura around body
+      if (charging) {
+        g.lineStyle(2, 0x67e8f9, 0.4); g.strokeCircle(0, -22, 14);
+        g.lineStyle(1, 0xa78bfa, 0.25); g.strokeCircle(0, 0, 22);
       }
 
     } else if (this.type === 'archer') {
