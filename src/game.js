@@ -1064,8 +1064,8 @@ class MainScene extends Phaser.Scene {
     const spellIds = Array.from(this.itemRegistry.keys()).filter(id => id.startsWith('spell_') && !this._playerOwnsItem(id));
     for (let i = 1; i < this.rooms.length - 1; i++) {
       const r = this.rooms[i];
-      // Trap rooms have no chest (traps are their own challenge)
-      if (r.type === 'trap') continue;
+      // Trap and shop rooms have no chest
+      if (r.type === 'trap' || r.type === 'shop') continue;
       const chestId = `floor:${this.dungeonLevel}:chest:${i}`;
       if (this._worldState.openedChests.includes(chestId)) continue;
       const cx = (r.cx + 0.5) * this._tileW, cy = (r.cy + 0.5) * this._tileH;
@@ -1659,14 +1659,15 @@ class MainScene extends Phaser.Scene {
   _handleFKey() {
     const px = this.player.x;
     const py = this.player.y;
-    const chestNearby = this._chests.find(c => !c.opened && c.isNearPlayer(px, py));
-    if (chestNearby) {
-      this._tryOpenNearbyChest();
-      return;
-    }
+    // Shop check first (takes priority over chest and fireball)
     const shopNearby = this._shopNpcs?.find(s => Math.hypot(s.x - px, s.y - py) < 72);
     if (shopNearby) {
       this._openShopUi(shopNearby);
+      return;
+    }
+    const chestNearby = this._chests.find(c => !c.opened && c.isNearPlayer(px, py));
+    if (chestNearby) {
+      this._tryOpenNearbyChest();
       return;
     }
     this._castFireball();
