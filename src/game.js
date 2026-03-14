@@ -39,7 +39,7 @@ const INPUT_BUFFER_MS = 140;
 const MOVE_COYOTE_MS = 90;
 const FIREBALL_SPEED    = 400;
 const FIREBALL_COOLDOWN = 620;
-const FIREBALL_DAMAGE   = 16;
+const FIREBALL_DAMAGE   = 8;
 const FIREBALL_RANGE    = 230;   // px — bolts die after this distance
 const FIREBALL_SPREAD   = 0.22;  // radians — angle between the 3 bolts
 const LIGHTNING_RADIUS = 170;
@@ -165,15 +165,16 @@ function _soundLevelUp()      { _tone(440, 'square', 0.1, 0.2); _tone(554, 'squa
 
 class AudioManager {
   constructor() {
-    this.enabled = true;
-    this.musicEvent = null;
-    this.ambientEvent = null;
-    this.scene = null;
+    this.enabled     = true;
+    this.musicEvent  = null;
+    this.ambientEvent= null;
+    this.chordEvent  = null;
+    this.dreadEvent  = null;
+    this.scene       = null;
+    this._chordStep  = 0;
   }
 
-  attachScene(scene) {
-    this.scene = scene;
-  }
+  attachScene(scene) { this.scene = scene; }
 
   toggleMuted() {
     this.enabled = !this.enabled;
@@ -194,7 +195,7 @@ class AudioManager {
       portal: _soundPortal,
       levelup: _soundLevelUp,
       footstep_stone: () => _tone(120, 'triangle', 0.03, 0.04, 80),
-      footstep_moss: () => _tone(180, 'sine', 0.02, 0.05, 120),
+      footstep_moss:  () => _tone(180, 'sine',     0.02, 0.05, 120),
     };
     map[name]?.();
   }
@@ -202,23 +203,57 @@ class AudioManager {
   startMusic(scene) {
     this.stopMusic();
     this.attachScene(scene);
+
+    // ── Heartbeat bass: heavy double-thump every 720ms ───────────────────────
     this.musicEvent = scene.time.addEvent({
-      delay: 1500,
-      loop: true,
+      delay: 720, loop: true,
       callback: () => {
         if (!this.enabled) return;
-        _tone(146, 'sine', 0.03, 1.2);
-        _tone(219, 'triangle', 0.02, 1.0, null, 0.25);
-        _tone(293, 'sine', 0.015, 0.8, null, 0.5);
+        _tone(58, 'sawtooth', 0.07, 0.18, 42);           // first thump
+        _tone(58, 'sawtooth', 0.045, 0.13, 42, 0.22);    // echo thump
       },
     });
-    this.ambientEvent = scene.time.addEvent({
-      delay: 6000,
-      loop: true,
+
+    // ── Tense chord cycle: dissonant minor chords every 1440ms ──────────────
+    // Notes chosen for maximum unease: minor seconds, tritones, minor thirds
+    const _chords = [
+      [[146, 'square', 0.030, 1.1], [175, 'square', 0.018, 0.9]],   // Dm
+      [[155, 'square', 0.025, 1.0], [185, 'square', 0.016, 0.8]],   // Eb (dissonant)
+      [[130, 'square', 0.028, 1.2], [164, 'square', 0.018, 1.0]],   // Cm
+      [[138, 'square', 0.020, 0.9], [196, 'square', 0.015, 0.7]],   // C# / tritone area
+    ];
+    this.chordEvent = scene.time.addEvent({
+      delay: 1440, loop: true,
       callback: () => {
         if (!this.enabled) return;
-        if (Math.random() > 0.5) _tone(400, 'sine', 0.015, 1.8, 520);
-        else _tone(80, 'triangle', 0.02, 1.4, 60);
+        for (const [freq, type, vol, dur] of _chords[this._chordStep % _chords.length]) {
+          _tone(freq, type, vol, dur);
+        }
+        this._chordStep++;
+      },
+    });
+
+    // ── Tension sting: descending tritone + deep sustain every 3.2s ─────────
+    this.ambientEvent = scene.time.addEvent({
+      delay: 3200, loop: true,
+      callback: () => {
+        if (!this.enabled) return;
+        if (Math.random() > 0.38) {
+          _tone(494, 'sawtooth', 0.022, 0.22, 330);      // Bb4 → E4 tritone drop
+          _tone(220, 'sine',    0.015, 1.8,  180, 0.12); // sustained low note
+        } else {
+          _tone(82,  'triangle', 0.025, 1.6, 62);        // deep rumble
+        }
+      },
+    });
+
+    // ── Dread accent: occasional high horror stab every ~8s ─────────────────
+    this.dreadEvent = scene.time.addEvent({
+      delay: 8200, loop: true,
+      callback: () => {
+        if (!this.enabled || Math.random() > 0.55) return;
+        _tone(880, 'sawtooth', 0.018, 0.08, 660);        // sharp high scrape
+        _tone(440, 'sine',     0.012, 0.55, 370, 0.10);  // low sustain follow
       },
     });
   }
@@ -226,8 +261,12 @@ class AudioManager {
   stopMusic() {
     this.musicEvent?.remove(false);
     this.ambientEvent?.remove(false);
-    this.musicEvent = null;
-    this.ambientEvent = null;
+    this.chordEvent?.remove(false);
+    this.dreadEvent?.remove(false);
+    this.musicEvent  = null;
+    this.ambientEvent= null;
+    this.chordEvent  = null;
+    this.dreadEvent  = null;
   }
 }
 
