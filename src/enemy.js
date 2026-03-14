@@ -5,6 +5,7 @@
  *   slime    — small, slow, low HP, low damage
  *   skeleton — taller, faster, higher HP, higher damage
  *   archer   — ranged, keeps distance, fires arrows
+ *   mage     — ranged caster, keeps distance, fires magic bolts
  *   bomber   — rushes player, primes, then explodes on contact
  *   boss     — large, high HP, two phases (melee + ranged spread)
  *
@@ -26,10 +27,10 @@
 
 export class Enemy {
   /**
-   * @param {Phaser.Scene}                              scene
-   * @param {number}                                    worldX
-   * @param {number}                                    worldY
-   * @param {'slime'|'skeleton'|'archer'|'bomber'|'boss'} type
+   * @param {Phaser.Scene}                                       scene
+   * @param {number}                                             worldX
+   * @param {number}                                             worldY
+   * @param {'slime'|'skeleton'|'archer'|'mage'|'bomber'|'boss'} type
    */
   constructor(scene, worldX, worldY, type) {
     this.scene = scene;
@@ -63,6 +64,17 @@ export class Enemy {
       this.minRange       = 95;   // backs away when dist < this
       this.attackCooldown = 2100;
       this.xpReward       = 32;
+    } else if (type === 'mage') {
+      this.maxHp          = 50;
+      this.damage         = 20;   // bolt damage (handled by game.js)
+      this.speed          = 52;
+      this.aggroRadius    = 320;
+      this.attackRange    = 240;  // casts when dist <= this
+      this.minRange       = 100;  // backs away when dist < this
+      this.attackCooldown = 2600;
+      this.xpReward       = 40;
+      this._castTimer     = 0;    // windup before bolt fires
+      this._casting       = false;
     } else if (type === 'bomber') {
       this.maxHp          = 22;
       this.damage         = 42;   // explosion damage (handled by game.js)
@@ -120,7 +132,7 @@ export class Enemy {
 
     if (type === 'slime') {
       this._physBody.setSize(30, 22).setOffset(-15, -11);
-    } else if (type === 'archer') {
+    } else if (type === 'archer' || type === 'mage') {
       this._physBody.setSize(22, 30).setOffset(-11, -15);
     } else if (type === 'bomber') {
       this._physBody.setSize(26, 26).setOffset(-13, -13);
@@ -167,6 +179,8 @@ export class Enemy {
       // ── AI movement (branched by type) ────────────────────────────────────
       if (this.type === 'archer') {
         this._updateArcherAI(dt, playerX, playerY);
+      } else if (this.type === 'mage') {
+        this._updateMageAI(dt, playerX, playerY);
       } else if (this.type === 'bomber') {
         this._updateBomberAI(dt, playerX, playerY);
       } else if (this.type === 'boss') {
@@ -255,6 +269,48 @@ export class Enemy {
       }
     } else if (dist < this.aggroRadius) {
       // Chase to get in range
+      this._state = 'chase';
+      if (dist > 1) {
+        this._physBody.setVelocity((dx / dist) * this.speed, (dy / dist) * this.speed);
+      }
+    } else {
+      this._wander(dt);
+    }
+  }
+
+  _updateMageAI(dt, playerX, playerY) {
+    const dx   = playerX - this.container.x;
+    const dy   = playerY - this.container.y;
+    const dist = Math.hypot(dx, dy);
+
+    this._attackTimer -= dt;
+
+    if (this._casting) {
+      // Stand still during cast windup (0.55s)
+      this._physBody.setVelocity(0, 0);
+      this._castTimer -= dt;
+      if (this._castTimer <= 0) {
+        this._casting    = false;
+        this._shootAngle = Math.atan2(dy, dx);
+        this._wantsShoot = true;
+      }
+      return;
+    }
+
+    if (dist < this.minRange) {
+      // Too close — back away
+      this._state = 'backpedal';
+      this._physBody.setVelocity(-(dx / dist) * this.speed, -(dy / dist) * this.speed);
+    } else if (dist <= this.attackRange && dist < this.aggroRadius) {
+      // In range — stop and begin casting
+      this._physBody.setVelocity(0, 0);
+      if (this._attackTimer <= 0) {
+        this._attackTimer = this.attackCooldown;
+        this._casting     = true;
+        this._castTimer   = 550;   // ms windup
+      }
+    } else if (dist < this.aggroRadius) {
+      // Reposition to get in range
       this._state = 'chase';
       if (dist > 1) {
         this._physBody.setVelocity((dx / dist) * this.speed, (dy / dist) * this.speed);
@@ -420,6 +476,46 @@ export class Enemy {
       g.fillStyle(dark, 1);
       for (let t = 0; t < 4; t++) g.fillRect(-7 + t * 4, -10, 3, 3);
 
+    } else if (this.type === 'mage') {
+      const casting = this._casting;
+      const robe  = flashing ? 0xff3333 : 0x6d28d9;
+      const dark  = flashing ? 0xcc0000 : 0x4c1d95;
+      const glow  = flashing ? 0xffffff : (casting ? 0x67e8f9 : 0xa78bfa);
+      // Shadow
+      g.fillStyle(0x000000, 0.28); g.fillEllipse(2, 28, 26, 10);
+      // Robe (long)
+      g.fillStyle(robe, 1); g.fillRect(-12, 0, 24, 28);
+      // Robe hem detail
+      g.fillStyle(dark, 0.6); g.fillRect(-12, 22, 24, 6);
+      // Body
+      g.fillStyle(robe, 1); g.fillRect(-11, -14, 22, 16);
+      // Arms
+      g.fillStyle(dark, 1); g.fillRect(-19, -12, 10, 16); g.fillRect(9, -12, 10, 16);
+      // Staff (right hand)
+      g.lineStyle(3, flashing ? 0xff3333 : 0x78350f, 1); g.lineBetween(18, -12, 18, -40);
+      // Orb at staff tip — glows when casting
+      g.fillStyle(glow, casting ? 1 : 0.7); g.fillCircle(18, -42, casting ? 7 : 5);
+      g.fillStyle(0xffffff, casting ? 0.8 : 0.3); g.fillCircle(18, -42, casting ? 3 : 2);
+      // Runes on robe (active when casting)
+      if (casting) {
+        g.lineStyle(1, 0x67e8f9, 0.8);
+        g.lineBetween(-8, 4, -2, 4); g.lineBetween(-8, 10, -2, 10);
+        g.lineBetween(2, 4, 8, 4);   g.lineBetween(2, 10, 8, 10);
+      }
+      // Head
+      g.fillStyle(0xfde68a, 1); g.fillEllipse(0, -22, 18, 18);
+      // Pointed hood
+      g.fillStyle(dark, 1);
+      g.fillTriangle(-10, -28, 10, -28, 0, -50);
+      g.fillRect(-10, -32, 20, 6);
+      // Eyes — glow when casting
+      g.fillStyle(casting ? glow : 0x111111, 1); g.fillCircle(-4, -22, 2); g.fillCircle(4, -22, 2);
+      // Casting aura
+      if (casting) {
+        g.lineStyle(2, 0x67e8f9, 0.5); g.strokeCircle(0, -22, 14);
+        g.lineStyle(1, 0xa78bfa, 0.3); g.strokeCircle(0, 0, 22);
+      }
+
     } else if (this.type === 'archer') {
       const skin = flashing ? 0xff3333 : 0xd97706;
       const hood = flashing ? 0xcc0000 : 0x064e3b;
@@ -528,6 +624,7 @@ export class Enemy {
     const bx     = -bw / 2;
     const by     = this.type === 'slime'   ? -24
                  : this.type === 'archer'  ? -36
+                 : this.type === 'mage'    ? -60
                  : this.type === 'bomber'  ? -36
                  : this.type === 'boss'    ? -70
                  : -42;

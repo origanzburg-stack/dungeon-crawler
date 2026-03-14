@@ -686,9 +686,10 @@ class MainScene extends Phaser.Scene {
           audioManager.playSfx('death');
           this._spawnDeathParticles(enemy.container.x, enemy.container.y, enemy.type);
           this._giveXp(enemy.xpReward);
-          const goldDrop = enemy.type === 'boss'    ? this._randInt(30, 50)
-                         : enemy.type === 'archer'  ? this._randInt(6, 12)
-                         : enemy.type === 'bomber'  ? this._randInt(3, 7)
+          const goldDrop = enemy.type === 'boss'     ? this._randInt(30, 50)
+                         : enemy.type === 'mage'     ? this._randInt(8, 14)
+                         : enemy.type === 'archer'   ? this._randInt(6, 12)
+                         : enemy.type === 'bomber'   ? this._randInt(3, 7)
                          : enemy.type === 'skeleton' ? this._randInt(4, 9)
                          : this._randInt(2, 5);
           this.player.gold += goldDrop;
@@ -710,14 +711,15 @@ class MainScene extends Phaser.Scene {
       if (enemy.wantsAttack && enemy._knockbackTimer <= 0 && Math.hypot(enemy.container.x - px, enemy.container.y - py) < CONTACT_RADIUS + 18) {
         this._playerTakeDamage(enemy.damage);
       }
-      // Archer: fire arrow toward player
+      // Archer / mage / boss: fire projectile toward player
       if (enemy.wantsShoot) {
         if (enemy.type === 'boss') {
           for (const angle of (enemy._shootAngles || [])) {
-            this._spawnEnemyArrow(enemy.container.x, enemy.container.y, angle);
+            this._spawnEnemyArrow(enemy.container.x, enemy.container.y, angle, true);
           }
         } else {
-          this._spawnEnemyArrow(enemy.container.x, enemy.container.y, enemy._shootAngle ?? 0);
+          const isBolt = enemy.type === 'mage';
+          this._spawnEnemyArrow(enemy.container.x, enemy.container.y, enemy._shootAngle ?? 0, isBolt);
         }
       }
       // Bomber: explode — area damage + self-destruct
@@ -1111,17 +1113,21 @@ class MainScene extends Phaser.Scene {
         // Enemy type variety scales with dungeon level
         const roll = this._randFloat();
         let type;
-        if (this.dungeonLevel >= 4 && roll > 0.82) {
+        if (this.dungeonLevel >= 5 && roll > 0.88) {
+          type = 'mage';
+        } else if (this.dungeonLevel >= 4 && roll > 0.78) {
           type = 'bomber';
-        } else if (this.dungeonLevel >= 2 && roll > 0.55) {
-          type = r.type === 'treasure' ? 'skeleton' : (roll > 0.75 ? 'archer' : 'skeleton');
+        } else if (this.dungeonLevel >= 3 && roll > 0.60) {
+          type = 'archer';
         } else if (roll > 0.40) {
           type = 'skeleton';
         } else {
           type = 'slime';
         }
-        // Treasure room gets at least one archer guardian on higher floors
-        if (r.type === 'treasure' && e === 0 && this.dungeonLevel >= 3) type = 'archer';
+        // Treasure room: first enemy is always a mage guardian (floor 4+) or archer (floor 2+)
+        if (r.type === 'treasure' && e === 0) {
+          type = this.dungeonLevel >= 4 ? 'mage' : (this.dungeonLevel >= 2 ? 'archer' : 'skeleton');
+        }
         const enemy = new Enemy(this, x, y, type);
         enemy.saveId = enemyId;
         // Scale enemy stats based on Dungeon Level
@@ -1181,22 +1187,29 @@ class MainScene extends Phaser.Scene {
 
   // ── Enemy projectiles ─────────────────────────────────────────────────────
 
-  _spawnEnemyArrow(originX, originY, angle) {
+  _spawnEnemyArrow(originX, originY, angle, isBolt = false) {
     const g = this.add.graphics().setDepth(9).setPosition(originX, originY);
-    // Arrow: thin elongated shape pointing in travel direction
-    g.fillStyle(0xfcd34d, 1);
-    g.fillRect(-8, -2, 16, 4);
-    g.fillStyle(0x7c3aed, 1);
-    g.fillTriangle(8, -3, 14, 0, 8, 3);
-    g.setRotation(angle);
+    if (isBolt) {
+      // Magic bolt: glowing orb
+      g.fillStyle(0x7c3aed, 0.4); g.fillCircle(0, 0, 10);
+      g.fillStyle(0xa855f7, 0.8); g.fillCircle(0, 0, 7);
+      g.fillStyle(0xe9d5ff, 1);   g.fillCircle(0, 0, 4);
+    } else {
+      // Arrow: thin elongated shape pointing in travel direction
+      g.fillStyle(0xfcd34d, 1); g.fillRect(-8, -2, 16, 4);
+      g.fillStyle(0x92400e, 1); g.fillTriangle(8, -3, 14, 0, 8, 3);
+      g.setRotation(angle);
+    }
+    const speed = isBolt ? 190 : ENEMY_ARROW_SPEED;
     this._enemyArrows.push({
       g,
       x: originX, y: originY,
-      vx: Math.cos(angle) * ENEMY_ARROW_SPEED,
-      vy: Math.sin(angle) * ENEMY_ARROW_SPEED,
-      damage: ENEMY_ARROW_DAMAGE,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      damage: isBolt ? 20 : ENEMY_ARROW_DAMAGE,
       life: ENEMY_ARROW_LIFE,
       active: true,
+      isBolt,
     });
   }
 
@@ -1246,24 +1259,31 @@ class MainScene extends Phaser.Scene {
   _drawShopNpc(g) {
     g.clear();
     // Shadow
-    g.fillStyle(0x000000, 0.28); g.fillEllipse(2, 28, 32, 10);
-    // Robe bottom
-    g.fillStyle(0x1e3a8a, 1); g.fillRect(-14, 4, 28, 24);
-    // Body
-    g.fillStyle(0x1d4ed8, 1); g.fillRect(-12, -14, 24, 20);
-    // Arms
-    g.fillStyle(0x1d4ed8, 1); g.fillRect(-20, -12, 10, 16); g.fillRect(10, -12, 10, 16);
-    // Head
-    g.fillStyle(0xfde68a, 1); g.fillEllipse(0, -22, 20, 20);
-    // Wizard hat
-    g.fillStyle(0x1e3a8a, 1); g.fillRect(-12, -32, 24, 10);
-    g.fillTriangle(-10, -32, 10, -32, 0, -52);
-    g.fillStyle(0xfbbf24, 1); g.fillRect(-12, -34, 24, 4);
-    // Eyes
-    g.fillStyle(0x111111, 1); g.fillCircle(-4, -22, 2); g.fillCircle(4, -22, 2);
-    // Gold coin sparkle
-    g.fillStyle(0xfbbf24, 1); g.fillCircle(16, -6, 5);
-    g.fillStyle(0xfef08a, 0.8); g.fillCircle(16, -6, 3);
+    g.fillStyle(0x000000, 0.28); g.fillEllipse(2, 30, 36, 12);
+    // Legs
+    g.fillStyle(0x78350f, 1); g.fillRect(-10, 10, 9, 20); g.fillRect(1, 10, 9, 20);
+    // Apron (front)
+    g.fillStyle(0xfef3c7, 1); g.fillRect(-10, -4, 20, 16);
+    // Stocky body
+    g.fillStyle(0x92400e, 1); g.fillRect(-13, -16, 26, 28);
+    // Arms (holding something)
+    g.fillStyle(0x92400e, 1); g.fillRect(-22, -14, 11, 18); g.fillRect(11, -14, 11, 18);
+    // Bag of gold in left hand
+    g.fillStyle(0xfbbf24, 1); g.fillCircle(-18, 6, 7);
+    g.lineStyle(2, 0xca8a04, 1); g.strokeCircle(-18, 6, 7);
+    g.fillStyle(0xfef08a, 0.8); g.fillCircle(-18, 6, 4);
+    // Head (round, friendly)
+    g.fillStyle(0xfde68a, 1); g.fillEllipse(0, -24, 22, 20);
+    // Merchant cap (flat brim, not pointed)
+    g.fillStyle(0x78350f, 1); g.fillRect(-14, -34, 28, 6); g.fillRect(-10, -40, 20, 8);
+    g.fillStyle(0xca8a04, 1); g.fillRect(-14, -36, 28, 3);
+    // Eyes (friendly, smiling)
+    g.fillStyle(0x111111, 1); g.fillCircle(-5, -25, 2); g.fillCircle(5, -25, 2);
+    // Smile
+    g.lineStyle(2, 0x78350f, 1);
+    g.strokeEllipse(0, -19, 10, 6);
+    // Apron tie
+    g.lineStyle(2, 0xca8a04, 1); g.lineBetween(-4, -4, -4, 12); g.lineBetween(4, -4, 4, 12);
   }
 
   _openShopUi(shop) {
@@ -2312,9 +2332,10 @@ class MainScene extends Phaser.Scene {
 
   _spawnDeathParticles(x, y, type) {
     const col = type === 'slime'    ? 0x22cc44
+              : type === 'mage'     ? 0xa855f7
               : type === 'archer'   ? 0xd97706
               : type === 'bomber'   ? 0xf97316
-              : type === 'boss'     ? 0xa855f7
+              : type === 'boss'     ? 0x7c3aed
               : 0xe2e8f0;
     this._spawnPickupParticles(x, y, col);
     if (type === 'bomber' || type === 'boss') {
