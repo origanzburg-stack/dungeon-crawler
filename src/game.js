@@ -56,7 +56,6 @@ const TRAP_DAMAGE        = 12;
 const TRAP_ACTIVE_MS     = 600;
 const TRAP_IDLE_MS       = 2400;
 const TRAP_WARN_MS       = 400;   // visual warning before activation
-const SHOP_INTERACT_RADIUS = 72;
 const SHOP_ITEM_COUNT    = 3;
 
 const RARITY_COLOR = {
@@ -850,11 +849,6 @@ class MainScene extends Phaser.Scene {
       }
     }
 
-    // ── Shop NPC prompts ──────────────────────────────────────────────────────
-    for (const shop of this._shopNpcs) {
-      const near = Math.hypot(shop.x - px, shop.y - py) < SHOP_INTERACT_RADIUS;
-      shop.promptText.setAlpha(near && !this._shopUiOpen ? 1 : 0);
-    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -1013,7 +1007,6 @@ class MainScene extends Phaser.Scene {
     this._spawnChests();
     this._spawnEnemies();
     this._spawnPortal();
-    this._spawnShops();
     this._spawnTraps();
   }
 
@@ -1063,8 +1056,8 @@ class MainScene extends Phaser.Scene {
     const spellIds = Array.from(this.itemRegistry.keys()).filter(id => id.startsWith('spell_') && !this._playerOwnsItem(id));
     for (let i = 1; i < this.rooms.length - 1; i++) {
       const r = this.rooms[i];
-      // Shop and trap rooms have no chest (shops have NPCs, traps are their own challenge)
-      if (r.type === 'shop' || r.type === 'trap') continue;
+      // Trap rooms have no chest (traps are their own challenge)
+      if (r.type === 'trap') continue;
       const chestId = `floor:${this.dungeonLevel}:chest:${i}`;
       if (this._worldState.openedChests.includes(chestId)) continue;
       const cx = (r.cx + 0.5) * this._tileW, cy = (r.cy + 0.5) * this._tileH;
@@ -1093,8 +1086,7 @@ class MainScene extends Phaser.Scene {
     const isBossFloor = this.dungeonLevel % 5 === 0;
     for (let i = 1; i < this.rooms.length; i++) {
       const r = this.rooms[i];
-      // No enemies in shop rooms
-      if (r.type === 'shop') continue;
+      // Shop rooms now work like normal rooms (mage + chest) — no special skip
       // Boss floor: portal room gets the boss instead of regular enemies
       if (isBossFloor && r.type === 'portal') {
         this._spawnBoss(r, i);
@@ -1661,11 +1653,6 @@ class MainScene extends Phaser.Scene {
     const chestNearby = this._chests.find(c => !c.opened && c.isNearPlayer(px, py));
     if (chestNearby) {
       this._tryOpenNearbyChest();
-      return;
-    }
-    const shopNearby = this._shopNpcs.find(s => Math.hypot(s.x - px, s.y - py) < SHOP_INTERACT_RADIUS);
-    if (shopNearby) {
-      this._openShopUi(shopNearby);
       return;
     }
     this._castFireball();
