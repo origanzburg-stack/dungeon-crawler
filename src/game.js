@@ -1295,6 +1295,15 @@ class MainScene extends Phaser.Scene {
   _openShopUi(shop) {
     if (this._shopUiOpen) return;
     this._shopUiOpen = true;
+
+    // Re-roll items every time the shop is opened
+    const allIds = Array.from(this.itemRegistry.keys());
+    shop.items = Array.from({ length: SHOP_ITEM_COUNT }, () => {
+      const id  = allIds[this._randInt(0, allIds.length - 1)];
+      const def = this.itemRegistry.get(id);
+      return { id, def, xpCost: def ? Math.max(20, Math.floor((def.value || 40) * 0.6)) : 20 };
+    });
+
     const { width, height } = this.scale;
     const cx = width / 2, cy = height / 2;
     const elements = [];
@@ -1361,9 +1370,14 @@ class MainScene extends Phaser.Scene {
         const added = this.player.addItem(def, 1);
         if (!added) { this._showToast('Inventory full!'); return; }
         this.player.xp -= shopItem.xpCost;
+        // Also place in an empty hotbar slot so it's immediately visible
+        const emptySlot = this.player.hotbar.findIndex(s => s === null);
+        if (emptySlot !== -1) this.player.setHotbar(emptySlot, def.id);
+        this._refreshHotbar();
         this._updateHud();
+        this._saveGame();
         this._logEvent(`Bought ${def.name} for ${shopItem.xpCost} XP`);
-        this._showToast(`Bought: ${def.name}`);
+        this._showToast(`Bought: ${def.name}!`);
         closeAll();
       });
     });
