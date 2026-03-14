@@ -504,6 +504,9 @@ class MainScene extends Phaser.Scene {
     this._traps = [];
     this._shopNpcs = [];
     this._shopUiOpen = false;
+    this._optionalBosses = [];
+    this._hasBossKey = false;
+    this._lockedChests = [];
     this._gameOver = false;
     this._levelingUp = false;
     this._levelIntroActive = false;
@@ -726,6 +729,55 @@ class MainScene extends Phaser.Scene {
       // Bomber: explode — area damage + self-destruct
       if (enemy.wantsExplode) {
         this._bomberExplode(enemy);
+      }
+    }
+
+    // ── Optional Boss (level 7+) — separate from portal-unlock enemies ────────
+    for (let i = this._optionalBosses.length - 1; i >= 0; i--) {
+      const boss = this._optionalBosses[i];
+      if (boss.dead) {
+        if (!boss._deathHandled) {
+          boss._deathHandled = true;
+          this._spawnDeathParticles(boss.container.x, boss.container.y, 'boss');
+          this._giveXp(boss.xpReward * 2);
+          this.player.gold += this._randInt(40, 70);
+          this._updateHud();
+          // Drop the boss key
+          this._dropBossKey(boss.container.x, boss.container.y);
+          this._logEvent('Optional boss defeated — key dropped!');
+          this._showToast('Key obtained! Find the locked chest.');
+        }
+        if (!boss.container.scene) this._optionalBosses.splice(i, 1);
+        continue;
+      }
+      boss.update(delta, px, py);
+      if (boss.wantsAttack && boss._knockbackTimer <= 0 && Math.hypot(boss.container.x - px, boss.container.y - py) < CONTACT_RADIUS + 24) {
+        this._playerTakeDamage(boss.damage);
+      }
+      if (boss.wantsShoot) {
+        for (const angle of (boss._shootAngles || [])) {
+          this._spawnEnemyArrow(boss.container.x, boss.container.y, angle, true);
+        }
+      }
+    }
+
+    // ── Locked chest proximity ────────────────────────────────────────────────
+    for (const lc of this._lockedChests) {
+      if (lc.opened) continue;
+      const near = Math.hypot(lc.x - px, lc.y - py) < 72;
+      lc.promptText?.setAlpha(near ? 1 : 0);
+    }
+
+    // ── Boss key pickup ───────────────────────────────────────────────────────
+    if (this._bossKeyPickup && !this._hasBossKey) {
+      const kp = this._bossKeyPickup;
+      if (Math.hypot(kp.x - px, kp.y - py) < 40) {
+        this._hasBossKey = true;
+        kp.g?.destroy();
+        kp.label?.destroy();
+        this._bossKeyPickup = null;
+        this._showToast('Boss Key picked up!');
+        this._logEvent('Boss Key obtained');
       }
     }
 
@@ -1017,6 +1069,7 @@ class MainScene extends Phaser.Scene {
     this._spawnPortal();
     this._spawnShops();
     this._spawnTraps();
+    if (this.dungeonLevel >= 7) this._spawnOptionalBossLair();
   }
 
   _findSafeWorldPosition(worldX, worldY, preferredRoom = null) {
@@ -1466,6 +1519,140 @@ class MainScene extends Phaser.Scene {
     }
   }
 
+  // ── Optional Boss Lair (level 7+) ──────────────────────────────────────────
+
+  _spawnOptionalBossLair() {
+    this._optionalBosses = [];
+    this._lockedChests   = [];
+    this._hasBossKey     = false;
+    this._bossKeyPickup  = null;
+
+    // Pick a room that isn't spawn or portal for the boss lair
+    const candidates = this.rooms.filter(r => r.type !== 'spawn' && r.type !== 'portal');
+    if (candidates.length === 0) return;
+    const lairRoom = candidates[Math.floor(this._randFloat() * candidates.length)];
+
+    // Dark-red floor tint for the lair
+    const g = this.add.graphics().setDepth(1);
+    for (let row = lairRoom.y; row < lairRoom.y + lairRoom.h; row++) {
+      for (let col = lairRoom.x; col < lairRoom.x + lairRoom.w; col++) {
+        g.fillStyle(0x7c3aed, 0.12).fillRect(col * this._tileW, row * this._tileH, this._tileW - 1, this._tileH - 1);
+      }
+    }
+
+    // Spawn optional boss
+    const bx = (lairRoom.cx + 0.5) * this._tileW;
+    const by = (lairRoom.cy + 0.5) * this._tileH;
+    const boss = new Enemy(this, bx, by, 'boss');
+    boss.saveId = `floor:${this.dungeonLevel}:optboss`;
+    boss.maxHp  = Math.floor(320 * (1 + (this.dungeonLevel - 7) * 0.18));
+    boss.hp     = boss.maxHp;
+    boss.damage = Math.floor(22  * (1 + (this.dungeonLevel - 7) * 0.12));
+    this.physics.add.collider(boss.container, this._wallGroup);
+    this._optionalBosses.push(boss);
+
+    // Skull marker above boss spawn
+    const label = this.add.text(bx, by - 80, '☠ OPTIONAL BOSS ☠', {
+      fontFamily: 'monospace', fontSize: '11px', color: '#a855f7',
+      stroke: '#000000', strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(30);
+    this.tweens.add({ targets: label, alpha: 0.3, duration: 900, yoyo: true, repeat: -1 });
+
+    // Locked chest — placed offset from the boss so it's reachable after the fight
+    const lcx = bx + (lairRoom.w > 3 ? this._tileW * 1.5 : 0);
+    const lcy = by + this._tileH;
+    this._spawnLockedChest(lcx, lcy);
+
+    this._logEvent(`Optional boss lair on floor ${this.dungeonLevel}!`);
+  }
+
+  _spawnLockedChest(x, y) {
+    const g = this.add.graphics().setDepth(5).setPosition(x, y);
+    this._drawLockedChest(g, false);
+
+    const promptText = this.add.text(x, y - 52, '[F] Locked — need Boss Key', {
+      fontFamily: 'monospace', fontSize: '11px', color: '#a855f7',
+      stroke: '#000000', strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(32).setAlpha(0);
+
+    const lc = { x, y, g, promptText, opened: false };
+    this._lockedChests.push(lc);
+  }
+
+  _drawLockedChest(g, opened) {
+    g.clear();
+    if (!opened) {
+      // Dark purple chest with glowing lock
+      g.fillStyle(0x000000, 0.3); g.fillEllipse(2, 28, 46, 12);
+      g.fillStyle(0x4c1d95, 1);   g.fillRect(-22, 2, 44, 20);
+      g.fillStyle(0x6d28d9, 1);   g.fillRect(-22, -16, 44, 20);
+      g.lineStyle(2, 0xa855f7, 1); g.strokeRect(-22, -16, 44, 38);
+      g.lineStyle(1, 0xa855f7, 0.5); g.lineBetween(-22, 2, 22, 2);
+      for (const [cx, cy] of [[-18, -14], [16, -14], [-18, 18], [16, 18]]) {
+        g.fillStyle(0xa855f7, 1); g.fillCircle(cx, cy, 3);
+      }
+      // Glowing lock
+      g.fillStyle(0xa855f7, 1);   g.fillRect(-6, -5, 12, 11);
+      g.lineStyle(3, 0xe9d5ff, 1); g.strokeArc(0, -5, 5, Math.PI, 0, false);
+      g.fillStyle(0x0a0010, 1);   g.fillRect(-2, -2, 4, 6);
+    } else {
+      g.fillStyle(0x1a0830, 1); g.fillRect(-22, -2, 44, 24);
+      g.fillStyle(0x0a0010, 1); g.fillRect(-17, 0, 34, 16);
+      g.fillStyle(0x2e1065, 1); g.fillRect(-22, -20, 44, 12);
+      g.lineStyle(2, 0x4c1d95, 1); g.strokeRect(-22, -20, 44, 46);
+    }
+  }
+
+  _dropBossKey(x, y) {
+    const g = this.add.graphics().setDepth(6).setPosition(x, y);
+    // Key visual
+    g.fillStyle(0xfbbf24, 1); g.fillCircle(0, 0, 8);
+    g.fillStyle(0xfef08a, 0.8); g.fillCircle(0, 0, 5);
+    g.fillStyle(0xfbbf24, 1); g.fillRect(4, -3, 14, 6);
+    g.fillRect(14, -3, 4, 8); g.fillRect(10, -3, 4, 8);
+    g.lineStyle(2, 0xf59e0b, 1); g.strokeCircle(0, 0, 8);
+    const label = this.add.text(x, y - 22, '★ BOSS KEY ★', {
+      fontFamily: 'monospace', fontSize: '11px', color: '#fbbf24',
+      stroke: '#000000', strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(32);
+    this.tweens.add({ targets: [g, label], y: `-=4`, duration: 600, yoyo: true, repeat: -1 });
+    this._bossKeyPickup = { x, y, g, label };
+  }
+
+  _tryOpenLockedChest(lc) {
+    if (!this._hasBossKey) {
+      this._showToast('Need Boss Key to open this!');
+      return;
+    }
+    this._hasBossKey = false;
+    lc.opened = true;
+    lc.promptText?.setAlpha(0);
+    this._drawLockedChest(lc.g, true);
+
+    // Give 3 high-quality random items
+    const allIds   = Array.from(this.itemRegistry.keys());
+    const spellIds = Array.from(this.itemRegistry.keys()).filter(id => id.startsWith('spell_') && !this._playerOwnsItem(id));
+    const lootPool = spellIds.length > 0 ? [...allIds, ...spellIds, ...spellIds] : allIds;
+    let given = 0;
+    for (let attempt = 0; attempt < 20 && given < 3; attempt++) {
+      const id  = lootPool[this._randInt(0, lootPool.length - 1)];
+      const def = this.itemRegistry.get(id);
+      if (!def) continue;
+      if (this.player.addItem(def, 1)) {
+        const slot = this.player.hotbar.findIndex(s => s === null);
+        if (slot !== -1) this.player.setHotbar(slot, def.id);
+        this._spawnPickupParticles(lc.x, lc.y, 0xa855f7);
+        this._logEvent(`Locked chest: found ${def.name}`);
+        given++;
+      }
+    }
+    this._refreshHotbar();
+    this._updateHud();
+    this._saveGame();
+    this._showToast(`Treasure! Found ${given} items!`);
+    this.cameras.main.flash(200, 168, 85, 247, true);
+  }
+
   _nextLevel() {
     if (this._levelingUp || this._gameOver) return;
     this._levelingUp = true; // Block input
@@ -1680,6 +1867,12 @@ class MainScene extends Phaser.Scene {
   _handleFKey() {
     const px = this.player.x;
     const py = this.player.y;
+    // Locked chest (boss key required)
+    const lockedChest = this._lockedChests?.find(lc => !lc.opened && Math.hypot(lc.x - px, lc.y - py) < 72);
+    if (lockedChest) {
+      this._tryOpenLockedChest(lockedChest);
+      return;
+    }
     const chestNearby = this._chests.find(c => !c.opened && c.isNearPlayer(px, py));
     if (chestNearby) {
       this._tryOpenNearbyChest();
