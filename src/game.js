@@ -854,8 +854,7 @@ class MainScene extends Phaser.Scene {
     // ── Shop NPC prompts ──────────────────────────────────────────────────────
     if (this._shopNpcs) {
       for (const shop of this._shopNpcs) {
-        const near = Math.hypot(shop.x - px, shop.y - py) < 72;
-        shop.promptText.setAlpha(near && !this._shopUiOpen ? 1 : 0);
+        shop.promptText.setAlpha(this._shopUiOpen ? 0 : 1);
       }
     }
   }
@@ -1245,15 +1244,21 @@ class MainScene extends Phaser.Scene {
         const def = this.itemRegistry.get(id);
         return { id, def, xpCost: def ? Math.max(20, Math.floor((def.value || 40) * 0.6)) : 20 };
       });
-      // NPC graphic
+      // NPC graphic — clickable hitbox
       const g = this.add.graphics().setDepth(6).setPosition(nx, ny);
       this._drawShopNpc(g);
-      // Prompt text
-      const promptText = this.add.text(nx, ny - 54, '[T] Shop', {
+      // Invisible click zone on top of the NPC
+      const hitZone = this.add.zone(nx, ny, 64, 64)
+        .setDepth(7)
+        .setInteractive({ useHandCursor: true });
+      hitZone.on('pointerdown', () => this._openShopUi(npcEntry));
+      // Prompt text — always visible so player knows what it is
+      const promptText = this.add.text(nx, ny - 54, '[click] Shop', {
         fontFamily: 'monospace', fontSize: '12px', color: '#fbbf24',
         stroke: '#000000', strokeThickness: 3,
-      }).setOrigin(0.5).setDepth(32).setAlpha(0);
-      this._shopNpcs.push({ x: nx, y: ny, items, g, promptText });
+      }).setOrigin(0.5).setDepth(32).setAlpha(1);
+      const npcEntry = { x: nx, y: ny, items, g, hitZone, promptText };
+      this._shopNpcs.push(npcEntry);
     }
   }
 
@@ -1672,7 +1677,7 @@ class MainScene extends Phaser.Scene {
   _handleShopKey() {
     const px = this.player.x;
     const py = this.player.y;
-    const shopNearby = this._shopNpcs?.find(s => Math.hypot(s.x - px, s.y - py) < 100);
+    const shopNearby = this._shopNpcs?.find(s => Math.hypot(s.x - px, s.y - py) < 200);
     if (shopNearby) this._openShopUi(shopNearby);
   }
 
