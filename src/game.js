@@ -849,6 +849,13 @@ class MainScene extends Phaser.Scene {
       }
     }
 
+    // ── Shop NPC prompts ──────────────────────────────────────────────────────
+    if (this._shopNpcs) {
+      for (const shop of this._shopNpcs) {
+        const near = Math.hypot(shop.x - px, shop.y - py) < 72;
+        shop.promptText.setAlpha(near && !this._shopUiOpen ? 1 : 0);
+      }
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -1007,6 +1014,7 @@ class MainScene extends Phaser.Scene {
     this._spawnChests();
     this._spawnEnemies();
     this._spawnPortal();
+    this._spawnShops();
     this._spawnTraps();
   }
 
@@ -1086,7 +1094,8 @@ class MainScene extends Phaser.Scene {
     const isBossFloor = this.dungeonLevel % 5 === 0;
     for (let i = 1; i < this.rooms.length; i++) {
       const r = this.rooms[i];
-      // Shop rooms now work like normal rooms (mage + chest) — no special skip
+      // No enemies in shop rooms — safe zone for buying
+      if (r.type === 'shop') continue;
       // Boss floor: portal room gets the boss instead of regular enemies
       if (isBossFloor && r.type === 'portal') {
         this._spawnBoss(r, i);
@@ -1653,6 +1662,11 @@ class MainScene extends Phaser.Scene {
     const chestNearby = this._chests.find(c => !c.opened && c.isNearPlayer(px, py));
     if (chestNearby) {
       this._tryOpenNearbyChest();
+      return;
+    }
+    const shopNearby = this._shopNpcs?.find(s => Math.hypot(s.x - px, s.y - py) < 72);
+    if (shopNearby) {
+      this._openShopUi(shopNearby);
       return;
     }
     this._castFireball();
